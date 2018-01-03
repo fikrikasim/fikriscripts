@@ -1,0 +1,83 @@
+#!/bin/bash
+#created by amir
+#20161214
+#v1.3
+#modified by fikri
+#v1.4 - 20180103
+
+SATSERVER="rhs.bestinet.com.my"
+
+if cat /root/.fresh-install
+then
+	exit
+else
+	clear
+fi
+
+###REGISTER REPOS###
+echo "172.27.20.100   $SATSERVER" >> /etc/hosts
+echo "exclude=redhat-release*" >> /etc/yum.conf
+rpm -Uvh http://$SATSERVER/pub/katello-ca-consumer-latest.noarch.rpm
+subscription-manager register --org="Bestinet" --activationkey="host_activation"
+subscription-manager repos --enable=rhel-\*-satellite-tools-\*-rpms
+subscription-manager repos --enable=rhel-\*-server-rh-\*-rpms
+sleep 1
+yum -y install katello-agent
+
+#####STOPPING FIREWALL######
+echo -e "\n\n############"
+echo -e "Stopping iptables in 2 sec.."
+sleep 2
+/etc/init.d/iptables stop
+chkconfig iptables off
+
+#####DISABLING SELINUX######
+echo -e "Disabling SELINUX in 2 sec..."
+sleep 2
+cp /etc/selinux/config /etc/selinux/config.bak
+cat /etc/selinux/config.bak |sed 's/SELINUX=enforcing/SELINUX=disabled/g' > /etc/selinux/config
+setenforce 0
+
+#####ULIMIT######
+echo -e "Editing ulimit file in 2 sec.."
+sleep 2
+echo -e "* hard\tnofile\t64000" >> /etc/security/limits.conf
+echo -e "* soft\tnofile\t64000" >> /etc/security/limits.conf
+
+###INSTALLING IMPORTANT TOOLS###
+echo -e "Installing important tools in 2 sec.."
+sleep 2
+yum -y install screen wget mlocate nmap mtr vim lynx ntpdate net-tools nslookup bind-utils telnet
+yum groupinstall "Development Tools" -y
+
+###INSTALL OVIRT AGENT###
+yum -y install qemu-guest-agent
+yum -y install tuned
+yum -y install https://rhs.bestinet.com.my/pub/apps/rhevm-guest-agent-common-1.0.10-2.el6ev.noarch.rpm
+systemctl enable ovirt-guest-agent
+systemctl start ovirt-guest-agent
+
+###DISABLE IPV6###
+cp -a /etc/sysctl.conf /etc/sysctl.conf.bak
+echo "net.ipv6.conf.all.disable_ipv6 = 1" >> /etc/sysctl.conf
+echo "net.ipv6.conf.default.disable_ipv6 = 1" >> /etc/sysctl.conf
+sysctl -p
+
+###NTP DATE###
+curl http://$SATSERVER/pub/scripts/sync-time.txt > /etc/cron.daily/sync-time.sh
+chmod 755 /etc/cron.daily/sync-time.sh
+sh /etc/cron.daily/sync-time.sh
+echo "/etc/cron.daily/sync-time.sh" >> /etc/rc.d/rc.local
+chmod +x /etc/rc.d/rc.local
+
+###INSTALL JAVA###
+yum -y remove java; yum -y remove jdk; yum -y remove java-1.7.0-openjdk*
+yum -y install http://$SATSERVER/pub/apps/jdk-7u80-linux-x64.rpm
+
+###PERFORM ALL PACKAGES UPDATE###
+yum -y update
+sleep 1
+
+echo "THIS SCRIPT ALREADY RUN BY $(whoami) at $(date)" > /root/.fresh-install
+
+exit 0
